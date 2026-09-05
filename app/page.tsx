@@ -9,7 +9,7 @@ export default function Home() {
         powered by the same OnlyMonkes community backend real holders already use in-app.
       </p>
       <div className="flex items-center justify-center gap-4">
-        <Link href="/globe" className="bg-purple-600 hover:bg-purple-500 rounded-full px-6 py-3">
+        <Link href="/globe" className="rounded-full px-6 py-3 text-[#0a1628] font-medium hover:brightness-90" style={{ background: "#6CB4EE" }}>
           🌍 View the Globe
         </Link>
         <Link href="/events" className="bg-white/10 hover:bg-white/20 rounded-full px-6 py-3">

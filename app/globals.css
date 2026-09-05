@@ -24,3 +24,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* OnlyMonkes blue (#6CB4EE — same constant the app uses, src/lib/constants.ts
+   MONKE_BLUE) instead of wallet-adapter-react-ui's default purple (#512da8)
+   trigger button, to match the dApp's color identity. */
+.wallet-adapter-button-trigger {
+  background-color: #6CB4EE;
+  color: #0a1628;
+}
+.wallet-adapter-button-trigger:not([disabled]):hover {
+  background-color: #4f9fe0;
+  color: #0a1628;
+}
+.wallet-adapter-modal-button-close svg circle {
+  fill: #6CB4EE;
+}
+.wallet-adapter-dropdown-list-item:not([disabled]):hover {
+  background-color: #6CB4EE;
+  color: #0a1628;
+}

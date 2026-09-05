@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import * as THREE from "three";
 import { getLocations, getEvents, getLumaEvents, type CommunityLocation, type CommunityEventSummary, type LumaEvent } from "@/lib/communityApi";
 import { useRouter } from "next/navigation";
 
@@ -11,11 +12,92 @@ const Globe = dynamic(() => import("react-globe.gl"), { ssr: false });
 
 type Marker =
   | { kind: "user"; lat: number; lng: number; label: string; nftImage: string | null }
-  | { kind: "event"; lat: number; lng: number; label: string; id: string }
-  | { kind: "luma-event"; lat: number; lng: number; label: string; url: string };
+  | { kind: "event"; lat: number; lng: number; label: string; id: string };
+
+type LumaObjMarker = { lat: number; lng: number; label: string; url: string };
+
+// Solana logo (3 slanted bars, purple→green gradient) drawn once to a canvas
+// texture and reused for every event beam — ported from the in-app globe's
+// Three.js WebView content (assets/globe.html, getSolanaLogoTexture()) so
+// both surfaces render the identical mark.
+let _solanaLogoTexture: THREE.CanvasTexture | null = null;
+function getSolanaLogoTexture(): THREE.CanvasTexture {
+  if (_solanaLogoTexture) return _solanaLogoTexture;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, "#9945FF");
+  grad.addColorStop(1, "#14F195");
+  ctx.fillStyle = grad;
+
+  const barH = size * 0.18;
+  const skew = size * 0.12;
+  const pad = size * 0.15;
+  const w = size - pad * 2;
+
+  ctx.beginPath();
+  ctx.moveTo(pad, pad);
+  ctx.lineTo(pad + w, pad);
+  ctx.lineTo(pad + w - skew, pad + barH);
+  ctx.lineTo(pad - skew, pad + barH);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  const midY = (size - barH) / 2;
+  ctx.moveTo(pad - skew, midY);
+  ctx.lineTo(pad + w - skew, midY);
+  ctx.lineTo(pad + w, midY + barH);
+  ctx.lineTo(pad, midY + barH);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  const botY = size - pad - barH;
+  ctx.moveTo(pad, botY);
+  ctx.lineTo(pad + w, botY);
+  ctx.lineTo(pad + w - skew, botY + barH);
+  ctx.lineTo(pad - skew, botY + barH);
+  ctx.closePath();
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  _solanaLogoTexture = tex;
+  return tex;
+}
+
+// Beam + logo sprite for one Solana event marker. react-globe.gl positions
+// and orients this via objectLat/objectLng/objectAltitude + objectFacesSurface
+// (the object's local +Y is rotated to point away from the globe center at
+// that lat/lng) — so unlike the in-app WebView's raw Three.js code, no
+// manual lookAt/rotation math is needed here, just build the shape pointing
+// up the local Y axis with its base at y=0.
+function buildEventBeamObject(): THREE.Object3D {
+  const group = new THREE.Group();
+
+  const BEAM_HEIGHT = 8;
+  const beamGeo = new THREE.CylinderGeometry(0.35, 0.35, BEAM_HEIGHT, 6);
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0x9945ff, transparent: true, opacity: 0.5 });
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  beam.position.y = BEAM_HEIGHT / 2;
+  group.add(beam);
+
+  const logoMat = new THREE.SpriteMaterial({ map: getSolanaLogoTexture(), transparent: true, opacity: 0.85, depthTest: false });
+  const logo = new THREE.Sprite(logoMat);
+  logo.position.y = BEAM_HEIGHT + 3;
+  logo.scale.set(6, 6, 1);
+  group.add(logo);
+
+  return group;
+}
 
 export function GlobeView() {
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [lumaObjMarkers, setLumaObjMarkers] = useState<LumaObjMarker[]>([]);
   const [userPills, setUserPills] = useState<{ label: string; nftImage: string | null }[]>([]);
   const [lumaEvents, setLumaEvents] = useState<LumaEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,11 +145,14 @@ export function GlobeView() {
         // Only Luma events with known coordinates get a globe pin — the
         // rest (online-only, or a city we couldn't place) still show in the
         // list below, same "online events" split the in-app globe does.
-        const lumaMarkers: Marker[] = luma
+        // Rendered via the separate objects layer (beam + Solana logo), not
+        // htmlElementsData — see buildEventBeamObject above.
+        const lumaMarkers: LumaObjMarker[] = luma
           .filter((e) => typeof e.lat === "number" && typeof e.lng === "number")
-          .map((e) => ({ kind: "luma-event", lat: e.lat!, lng: e.lng!, label: e.name, url: e.url }));
+          .map((e) => ({ lat: e.lat!, lng: e.lng!, label: e.name, url: e.url }));
 
-        setMarkers([...userMarkers, ...eventMarkers, ...lumaMarkers]);
+        setMarkers([...userMarkers, ...eventMarkers]);
+        setLumaObjMarkers(lumaMarkers);
         setUserPills(locations.map((l) => ({ label: l.username ?? "Monke", nftImage: l.nftImage })));
         setLumaEvents(luma);
       })
@@ -85,7 +170,6 @@ export function GlobeView() {
   }, []);
 
   const userMarkerCount = markers.filter((m) => m.kind === "user").length;
-  const lumaMarkerCount = markers.filter((m) => m.kind === "luma-event").length;
   const eventMarkerCount = markers.filter((m) => m.kind === "event").length;
 
   return (
@@ -96,7 +180,7 @@ export function GlobeView() {
             Loading Monkes…
           </div>
         )}
-        {!loading && markers.length === 0 && (
+        {!loading && markers.length === 0 && lumaObjMarkers.length === 0 && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 rounded-full px-4 py-2 text-sm text-white/70 z-10">
             No public locations or events yet — be the first 🐒
           </div>
@@ -124,13 +208,6 @@ export function GlobeView() {
               el.style.backgroundPosition = "center";
               el.style.backgroundColor = "#222";
               if (m.nftImage) el.style.backgroundImage = `url(${m.nftImage})`;
-            } else if (m.kind === "luma-event") {
-              el.style.width = "16px";
-              el.style.height = "16px";
-              el.style.borderRadius = "50%";
-              el.style.background = "#6CB4EE";
-              el.style.border = "2px solid white";
-              el.onclick = () => window.open(m.url, "_blank", "noopener,noreferrer");
             } else {
               el.style.width = "16px";
               el.style.height = "16px";
@@ -141,6 +218,14 @@ export function GlobeView() {
             }
             return el;
           }}
+          objectsData={lumaObjMarkers}
+          objectLat={(d) => (d as LumaObjMarker).lat}
+          objectLng={(d) => (d as LumaObjMarker).lng}
+          objectAltitude={0.005}
+          objectFacesSurfaces={true}
+          objectLabel={(d) => (d as LumaObjMarker).label}
+          objectThreeObject={buildEventBeamObject}
+          onObjectClick={(d) => window.open((d as LumaObjMarker).url, "_blank", "noopener,noreferrer")}
         />
       </div>
 
@@ -160,54 +245,57 @@ export function GlobeView() {
         </span>
       </div>
 
-      {/* Rows of Monkes — PFP pills, same style/layout as the in-app globe */}
-      {userPills.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-4 py-3">
-          {userPills.map((p, i) => (
-            <div
-              key={`${p.label}-${i}`}
-              className="flex items-center gap-1.5 rounded-2xl px-2 py-1.5 max-w-[48%]"
-              style={{ background: "rgba(153,69,255,0.1)", border: "1px solid rgba(153,69,255,0.15)" }}
-            >
-              {p.nftImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.nftImage} alt="" className="w-[22px] h-[22px] rounded-full object-cover" />
-              ) : (
-                <div className="w-[22px] h-[22px] rounded-full" style={{ background: "rgba(153,69,255,0.2)" }} />
-              )}
-              <span className="text-xs text-white truncate">{p.label}</span>
+      {/* Two columns — Monkes / Solana Events — both flow with the page's
+          own vertical scroll (no independent horizontal or capped-height
+          scroll areas); a long list in either column just makes the page
+          taller, same as the other one. */}
+      {(userPills.length > 0 || lumaEvents.length > 0) && (
+        <div className="grid grid-cols-2 gap-3 px-4 pb-6">
+          <div>
+            <div className="text-xs font-semibold text-white/60 mb-1.5">
+              🐒 Monkes ({userPills.length})
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Solana Events — pulled live from Lu.ma calendars + solana.com/events,
-          same source the in-app globe uses (see communityApi.ts getLumaEvents). */}
-      {lumaEvents.length > 0 && (
-        <div className="px-4 pb-6">
-          <div className="text-xs font-semibold text-white/60 mb-1.5">
-            🌐 Solana Events ({lumaEvents.length})
+            <div className="flex flex-col gap-1">
+              {userPills.map((p, i) => (
+                <div
+                  key={`${p.label}-${i}`}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5"
+                  style={{ background: "rgba(153,69,255,0.08)", border: "1px solid rgba(153,69,255,0.15)" }}
+                >
+                  {p.nftImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.nftImage} alt="" className="w-[22px] h-[22px] rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-[22px] h-[22px] rounded-full shrink-0" style={{ background: "rgba(153,69,255,0.2)" }} />
+                  )}
+                  <span className="text-xs text-white truncate">{p.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-col gap-1 max-h-[240px] overflow-y-auto">
-            {lumaEvents.map((e) => (
-              <a
-                key={e.id}
-                href={e.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-lg px-3 py-2"
-                style={{ background: "rgba(108,180,238,0.06)", border: "1px solid rgba(108,180,238,0.10)" }}
-              >
-                <div className="flex-1 min-w-0 mr-2">
-                  <div className="text-xs text-white truncate">{e.name}</div>
-                  <div className="text-[10px] text-white/50 mt-0.5">
+
+          <div>
+            <div className="text-xs font-semibold text-white/60 mb-1.5">
+              🌐 Solana Events ({lumaEvents.length})
+            </div>
+            <div className="flex flex-col gap-1">
+              {lumaEvents.map((e) => (
+                <a
+                  key={e.id}
+                  href={e.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-col rounded-lg px-2 py-1.5"
+                  style={{ background: "rgba(108,180,238,0.06)", border: "1px solid rgba(108,180,238,0.10)" }}
+                >
+                  <span className="text-xs text-white truncate">{e.name}</span>
+                  <span className="text-[10px] text-white/50 mt-0.5 truncate">
                     {e.startAt ? new Date(e.startAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "TBD"}
                     {e.location ? ` · ${e.location}` : ""}
-                  </div>
-                </div>
-                <span className="text-sm" style={{ color: "#6CB4EE" }}>→</span>
-              </a>
-            ))}
+                  </span>
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       )}

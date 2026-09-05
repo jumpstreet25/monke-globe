@@ -16,7 +16,7 @@ export default function EventsPage() {
     <div className="max-w-2xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Upcoming Events</h1>
-        <Link href="/events/new" className="text-sm bg-purple-600 hover:bg-purple-500 rounded-full px-4 py-2">
+        <Link href="/events/new" className="text-sm rounded-full px-4 py-2 text-[#0a1628] font-medium hover:brightness-90" style={{ background: "#6CB4EE" }}>
           + New event
         </Link>
       </div>

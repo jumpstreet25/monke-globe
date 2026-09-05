@@ -78,7 +78,8 @@ export default function ShareLocationPage() {
       <button
         type="submit"
         disabled={busy}
-        className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-full px-5 py-2 text-sm"
+        className="disabled:opacity-50 rounded-full px-5 py-2 text-sm text-[#0a1628] font-medium hover:brightness-90"
+        style={{ background: "#6CB4EE" }}
       >
         {busy ? "Saving…" : "Pin me on the globe"}
       </button>
