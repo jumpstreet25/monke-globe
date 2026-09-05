@@ -23,13 +23,33 @@ export function GlobeView() {
   useEffect(() => {
     Promise.all([getLocations(), getEvents()])
       .then(([locations, events]: [CommunityLocation[], CommunityEventSummary[]]) => {
-        const userMarkers: Marker[] = locations.map((l) => ({
-          kind: "user",
-          lat: l.lat,
-          lng: l.lng,
-          label: l.username ?? "Monke",
-          nftImage: l.nftImage,
-        }));
+        // Multiple holders in the same city geocode to the exact same
+        // lat/lng (Nominatim returns one centroid per place name) — two
+        // htmlElementsData markers sitting at identical coordinates can
+        // render stacked exactly on top of each other, so only the topmost
+        // one is ever visible/clickable. Spread same-spot markers into a
+        // small ring around the shared point, deterministic by wallet so a
+        // given user doesn't jump around between loads.
+        const byCoord = new Map<string, CommunityLocation[]>();
+        for (const l of locations) {
+          const key = `${l.lat.toFixed(3)},${l.lng.toFixed(3)}`;
+          const group = byCoord.get(key);
+          if (group) group.push(l); else byCoord.set(key, [l]);
+        }
+        const JITTER_DEGREES = 0.4;
+        const userMarkers: Marker[] = Array.from(byCoord.values()).flatMap((group) =>
+          group.map((l, i) => {
+            const angle = (i / group.length) * 2 * Math.PI;
+            const spread = group.length > 1 ? JITTER_DEGREES : 0;
+            return {
+              kind: "user" as const,
+              lat: l.lat + spread * Math.sin(angle),
+              lng: l.lng + spread * Math.cos(angle),
+              label: l.username ?? "Monke",
+              nftImage: l.nftImage,
+            };
+          })
+        );
         const eventMarkers: Marker[] = events.map((e) => ({
           kind: "event",
           lat: e.lat,
