@@ -69,6 +69,29 @@ export async function getLocations(): Promise<CommunityLocation[]> {
   return json.locations ?? [];
 }
 
+export interface LumaEvent {
+  id: string;
+  name: string;
+  startAt: string;
+  endAt?: string;
+  location: string;
+  lat?: number;
+  lng?: number;
+  coverUrl?: string;
+  url: string;
+  source: "luma";
+}
+
+/** Solana ecosystem events (Lu.ma calendars + solana.com/events), proxied
+ *  server-side by the worker since api.lu.ma/solana.com don't send CORS
+ *  headers for a direct browser fetch — same events the in-app globe shows,
+ *  see worker-actions/src/lumaEvents.ts. */
+export async function getLumaEvents(): Promise<LumaEvent[]> {
+  const res = await fetch(`${WORKER_BASE}/api/community/luma-events`);
+  const json = await res.json();
+  return json.events ?? [];
+}
+
 export async function getEvents(): Promise<CommunityEventSummary[]> {
   const res = await fetch(`${WORKER_BASE}/api/community/events`);
   const json = await res.json();
