@@ -1,0 +1,8 @@
+name = "monke-globe-domains"
+main = "src/index.ts"
+compatibility_date = "2026-03-23"
+workers_dev = false
+routes = [
+  { pattern = "globe.onlymonkes.app", custom_domain = true },
+  { pattern = "monkeglobe.onlymonkes.app", custom_domain = true },
+]
